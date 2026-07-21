@@ -1,0 +1,32 @@
+{
+  "name": "@publicalendar/client",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:h5": "uni -p h5",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build:h5": "uni build -p h5",
+    "build:mp-weixin": "uni build -p mp-weixin",
+    "build:h5:cloudflare": "cross-env UNI_OUTPUT_DIR=dist/build/h5 uni build -p h5 --mode cloudflare",
+    "build:h5:tencent": "cross-env UNI_OUTPUT_DIR=dist/build/h5-tencent uni build -p h5 --mode tencent",
+    "build:mp-weixin:tencent": "cross-env UNI_OUTPUT_DIR=dist/build/mp-weixin-tencent uni build -p mp-weixin --mode tencent"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-alpha-5020120260710001",
+    "@dcloudio/uni-components": "3.0.0-alpha-5020120260710001",
+    "@dcloudio/uni-h5": "3.0.0-alpha-5020120260710001",
+    "@dcloudio/uni-mp-weixin": "3.0.0-alpha-5020120260710001",
+    "@publicalendar/shared": "workspace:*",
+    "vue": "3.4.21"
+  },
+  "devDependencies": {
+    "@dcloudio/types": "3.4.31",
+    "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5020120260710001",
+    "@types/node": "latest",
+    "cross-env": "^10.1.0",
+    "sass": "latest",
+    "typescript": "5.9.3",
+    "vite": "5.2.8",
+    "vue-tsc": "latest"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@publicalendar/cloudbase",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "login": "tcb login",
+    "build:function": "node ./scripts/build-function.mjs",
+    "deploy:function": "node ./scripts/build-function.mjs && tcb fn deploy publicalendar -e publicalendar-d6g6uxmuz4b418883 --force --httpFn --yes --dir ./dist/publicalendar && tcb fn deploy publicalendar-event -e publicalendar-d6g6uxmuz4b418883 --force --yes --dir ./dist/publicalendar-event",
+    "deploy:function:http": "node ./scripts/build-function.mjs && tcb fn deploy publicalendar -e publicalendar-d6g6uxmuz4b418883 --force --httpFn --yes --dir ./dist/publicalendar",
+    "deploy:function:event": "node ./scripts/build-function.mjs && tcb fn deploy publicalendar-event -e publicalendar-d6g6uxmuz4b418883 --force --yes --dir ./dist/publicalendar-event",
+    "deploy:hosting": "tcb hosting deploy ../client/dist/build/h5-tencent / -e publicalendar-d6g6uxmuz4b418883",
+    "create:collections": "node ./scripts/create-collections.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "latest",
+    "@publicalendar/shared": "workspace:*",
+    "@types/node": "^26.1.1",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@cloudbase/cli": "^3.6.2",
+    "esbuild": "^0.28.1",
+    "typescript": "5.9.3",
+    "vitest": "latest"
+  }
+}

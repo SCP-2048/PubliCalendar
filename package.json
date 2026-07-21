@@ -1,0 +1,30 @@
+{
+  "name": "publicalendar",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "dev:api": "pnpm --filter @publicalendar/api dev",
+    "dev:h5": "pnpm --filter @publicalendar/client dev:h5",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build:h5": "pnpm --filter @publicalendar/client build:h5",
+    "build:h5:cloudflare": "pnpm --filter @publicalendar/client build:h5:cloudflare",
+    "build:h5:tencent": "pnpm --filter @publicalendar/client build:h5:tencent",
+    "build:mp-weixin": "pnpm --filter @publicalendar/client build:mp-weixin",
+    "build:mp-weixin:tencent": "pnpm --filter @publicalendar/client build:mp-weixin:tencent",
+    "deploy": "pnpm deploy:all",
+    "deploy:all": "pnpm deploy:cloudflare && pnpm deploy:tencent",
+    "deploy:cloudflare": "pnpm build:h5:cloudflare && pnpm --filter @publicalendar/api run deploy",
+    "deploy:tencent": "pnpm build:h5:tencent && pnpm --filter @publicalendar/cloudbase run deploy:hosting",
+    "deploy:tencent:function": "pnpm --filter @publicalendar/cloudbase run deploy:function",
+    "deploy:tencent:all": "pnpm deploy:tencent:function && pnpm deploy:tencent",
+    "deploy:dry-run": "pnpm build:h5:cloudflare && pnpm --filter @publicalendar/api run deploy:dry-run"
+  },
+  "devDependencies": {
+    "@vue/compiler-sfc": "3.4.21",
+    "typescript": "5.9.3",
+    "vitest": "latest",
+    "vue": "3.4.21"
+  }
+}

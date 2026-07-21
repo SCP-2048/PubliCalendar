@@ -1,0 +1,20 @@
+{
+  "name": "PubliCalendar",
+  "appid": "__UNI__PUBLICALENDAR",
+  "description": "无需注册的多人可用时间交集工具",
+  "versionName": "0.1.2",
+  "versionCode": "102",
+  "transformPx": false,
+  "h5": {
+    "router": { "mode": "hash" }
+  },
+  "mp-weixin": {
+    "appid": "wxf19a6538b1a4efd0",
+    "setting": {
+      "urlCheck": true,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true
+  }
+}

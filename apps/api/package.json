@@ -1,0 +1,24 @@
+{
+  "name": "@publicalendar/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "typecheck": "wrangler types src/worker-configuration.d.ts && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "types": "wrangler types src/worker-configuration.d.ts"
+  },
+  "dependencies": {
+    "@publicalendar/shared": "workspace:*",
+    "hono": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "5.9.3",
+    "vitest": "latest",
+    "wrangler": "latest"
+  }
+}

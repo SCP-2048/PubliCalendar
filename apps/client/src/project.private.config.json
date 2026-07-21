@@ -1,0 +1,7 @@
+{
+  "description": "本地私有配置，避免微信开发者工具校验 request 合法域名",
+  "projectname": "PubliCalendar",
+  "setting": {
+    "urlCheck": false
+  }
+}

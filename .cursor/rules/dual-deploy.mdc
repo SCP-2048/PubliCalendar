@@ -1,0 +1,21 @@
+---
+description: Always deploy both Cloudflare and Tencent CloudBase after shippable changes
+alwaysApply: true
+---
+
+# Dual deployment (Cloudflare + CloudBase)
+
+PubliCalendar has two independent live frontends. After any change that should go live:
+
+1. Build and deploy **both** targets — never only Cloudflare.
+2. Prefer the root scripts:
+   - `pnpm deploy:all` (or `pnpm deploy`) — Cloudflare Worker/H5 **and** Tencent CloudBase H5 hosting
+   - `pnpm deploy:cloudflare` — Cloudflare only
+   - `pnpm deploy:tencent` — CloudBase H5 hosting only
+   - `pnpm deploy:tencent:function` — CloudBase HTTP function (when API/backend changes)
+3. If client UI changed: run `deploy:all` (or at least both `deploy:cloudflare` and `deploy:tencent`).
+4. If Cloudflare API (`apps/api`) changed: include `deploy:cloudflare`.
+5. If CloudBase function (`apps/cloudbase`) changed: also run `deploy:tencent:function` (deploys both HTTP `publicalendar` and event `publicalendar-event` for the mini program).
+6. After mini-program client changes: run `pnpm build:mp-weixin:tencent` and tell the user to re-import/refresh `apps/client/dist/build/mp-weixin-tencent` in WeChat DevTools.
+7. Confirm deploy commands exit 0 before telling the user it is live.
+8. Remind the user that Tencent CDN may need a hard refresh / a few minutes.

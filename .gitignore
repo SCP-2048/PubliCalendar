@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.local
+coverage/
+apps/client/src/env.ts
+.cursor/*.log
+create-body.json
+invoke-params.json
+ranges.json
+verify-body.json
