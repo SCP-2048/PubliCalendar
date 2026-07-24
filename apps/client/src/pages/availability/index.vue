@@ -47,8 +47,6 @@ type SheetTarget =
 
 const DEFAULT_START = "09:00";
 const DEFAULT_END = "18:00";
-const INVERT_DAY_START = "00:00";
-const INVERT_DAY_END = "23:59";
 
 const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
 const code = ref("");
@@ -64,7 +62,7 @@ const sheetColumns = ref<PickerColumn[]>([]);
 const sheetValues = ref<string[]>([]);
 const sheetTarget = ref<SheetTarget | null>(null);
 const batchMode = ref(false);
-const invertMode = ref(false);
+const batchDeleteMode = ref(false);
 const batchTimeStart = ref(DEFAULT_START);
 const batchTimeEnd = ref(DEFAULT_END);
 const pendingBatchDate = ref("");
@@ -73,13 +71,7 @@ const participantId = ref("");
 let nextRangeId = 1;
 let discardingUnsubmitted = false;
 
-function defaultStart(): string {
-  return invertMode.value ? INVERT_DAY_START : DEFAULT_START;
-}
-
-function defaultEnd(): string {
-  return invertMode.value ? INVERT_DAY_END : DEFAULT_END;
-}
+const anyBatchMode = computed(() => batchMode.value || batchDeleteMode.value);
 
 const monthLabel = computed(() => {
   if (!monthKey.value) return "";
@@ -91,20 +83,19 @@ const selectedEntry = computed(() => availability[selectedDate.value]);
 const configuredCount = computed(
   () => Object.values(availability).filter((entry) => entry.ranges.length > 0).length,
 );
-const pageTitle = computed(() =>
-  invertMode.value ? "选择不可用时间" : "选择可用时间",
-);
 
 const batchHint = computed(() => {
-  if (invertMode.value && !batchMode.value) {
-    return "反选：选中的时段不可用，其余 00:00–23:59 视为可用";
+  if (batchDeleteMode.value) {
+    if (pendingBatchDate.value) {
+      return `已选择 ${pendingBatchDate.value}，请再点结束日期；范围内每天的全部时段都会清除（整日不可用）`;
+    }
+    return "连续点击开始日期和结束日期；所选日期的全部时段都会清除（整日不可用）";
   }
-  if (!batchMode.value) return "可逐日编辑，或开启批量添加";
-  const meaning = invertMode.value ? "不可用" : "可用";
+  if (!batchMode.value) return "可逐日编辑，或开启批量添加 / 批量删除";
   if (pendingBatchDate.value) {
-    return `已选择 ${pendingBatchDate.value}，请再点结束日期；所选日期都会设为 ${meaning} ${batchTimeStart.value}–${batchTimeEnd.value}`;
+    return `已选择 ${pendingBatchDate.value}，请再点结束日期；所选日期都会设为 ${batchTimeStart.value}–${batchTimeEnd.value}`;
   }
-  return `先确认${meaning}时间 ${batchTimeStart.value}–${batchTimeEnd.value}，再连续点击开始日期和结束日期`;
+  return `先确认时间 ${batchTimeStart.value}–${batchTimeEnd.value}，再连续点击开始日期和结束日期`;
 });
 
 const calendarDays = computed<CalendarCell[]>(() => {
@@ -133,8 +124,8 @@ const calendarDays = computed<CalendarCell[]>(() => {
       key,
       day,
       inRange: isAllowedDate(key, schedule.value),
-      selected: !batchMode.value && key === selectedDate.value,
-      pending: batchMode.value && key === pendingBatchDate.value,
+      selected: !anyBatchMode.value && key === selectedDate.value,
+      pending: anyBatchMode.value && key === pendingBatchDate.value,
       configured: Boolean(availability[key]?.ranges.length),
     });
   }
@@ -212,13 +203,17 @@ async function load() {
 function onDayClick(cell: CalendarCell) {
   if (cell.day === null || !cell.inRange) return;
   if (batchMode.value) {
-    selectBatchDate(cell.key);
+    selectBatchAddDate(cell.key);
+    return;
+  }
+  if (batchDeleteMode.value) {
+    selectBatchDeleteDate(cell.key);
     return;
   }
   selectedDate.value = cell.key;
 }
 
-function selectBatchDate(date: string) {
+function selectBatchAddDate(date: string) {
   error.value = "";
   if (!batchTimeStart.value || !batchTimeEnd.value) {
     error.value = "请先选择批量时间段";
@@ -240,6 +235,20 @@ function selectBatchDate(date: string) {
   selectedDate.value = startDate;
 }
 
+function selectBatchDeleteDate(date: string) {
+  error.value = "";
+  if (!pendingBatchDate.value) {
+    pendingBatchDate.value = date;
+    selectedDate.value = date;
+    return;
+  }
+  const startDate = pendingBatchDate.value < date ? pendingBatchDate.value : date;
+  const endDate = pendingBatchDate.value < date ? date : pendingBatchDate.value;
+  applyBatchDeleteToDateRange(startDate, endDate);
+  pendingBatchDate.value = "";
+  selectedDate.value = startDate;
+}
+
 function applyBatchTimeToDateRange(startDate: string, endDate: string) {
   if (!schedule.value) return;
   let date = startDate;
@@ -254,20 +263,33 @@ function applyBatchTimeToDateRange(startDate: string, endDate: string) {
   }
 }
 
-function toggleBatchMode() {
-  batchMode.value = !batchMode.value;
-  pendingBatchDate.value = "";
-  if (batchMode.value) {
-    batchTimeStart.value = defaultStart();
-    batchTimeEnd.value = defaultEnd();
+function applyBatchDeleteToDateRange(startDate: string, endDate: string) {
+  if (!schedule.value) return;
+  let date = startDate;
+  while (date <= endDate) {
+    if (isAllowedDate(date, schedule.value)) {
+      delete availability[date];
+    }
+    date = addDays(date, 1);
   }
 }
 
-function toggleInvertMode() {
-  invertMode.value = !invertMode.value;
+function toggleBatchMode() {
+  const next = !batchMode.value;
+  batchMode.value = next;
+  if (next) {
+    batchDeleteMode.value = false;
+    batchTimeStart.value = DEFAULT_START;
+    batchTimeEnd.value = DEFAULT_END;
+  }
   pendingBatchDate.value = "";
-  batchTimeStart.value = defaultStart();
-  batchTimeEnd.value = defaultEnd();
+}
+
+function toggleBatchDeleteMode() {
+  const next = !batchDeleteMode.value;
+  batchDeleteMode.value = next;
+  if (next) batchMode.value = false;
+  pendingBatchDate.value = "";
 }
 
 function addRange() {
@@ -276,8 +298,8 @@ function addRange() {
   const isFirstRange = entry.ranges.length === 0;
   entry.ranges.push({
     id: nextRangeId,
-    start: isFirstRange ? defaultStart() : "",
-    end: isFirstRange ? defaultEnd() : "",
+    start: isFirstRange ? DEFAULT_START : "",
+    end: isFirstRange ? DEFAULT_END : "",
   });
   nextRangeId += 1;
   availability[selectedDate.value] = entry;
@@ -290,7 +312,7 @@ function openTimePicker(index: number, field: "start" | "end") {
   sheetTitle.value = field === "start" ? "选择开始时间" : "选择结束时间";
   sheetColumns.value = buildTimeColumns();
   sheetValues.value = timeParts(
-    range[field] || (field === "start" ? defaultStart() : defaultEnd()),
+    range[field] || (field === "start" ? DEFAULT_START : DEFAULT_END),
   );
   sheetOpen.value = true;
 }
@@ -393,37 +415,6 @@ function moveMonth(offset: number) {
   monthKey.value = nextMonth < firstMonth ? firstMonth : nextMonth > lastMonth ? lastMonth : nextMonth;
 }
 
-/** Selected ranges are unavailable; return free gaps within 00:00–23:59. */
-function invertDayRanges(blocked: TimeRange[]): TimeRange[] {
-  const merged = blocked
-    .filter((range) => range.start && range.end && range.start < range.end)
-    .map((range) => ({ start: range.start, end: range.end }))
-    .sort((left, right) => left.start.localeCompare(right.start) || left.end.localeCompare(right.end));
-  const union: Array<{ start: string; end: string }> = [];
-  for (const current of merged) {
-    const previous = union[union.length - 1];
-    if (!previous || current.start > previous.end) {
-      union.push({ ...current });
-      continue;
-    }
-    if (current.end > previous.end) previous.end = current.end;
-  }
-  const free: TimeRange[] = [];
-  let cursor = INVERT_DAY_START;
-  for (const busy of union) {
-    if (cursor < busy.start) {
-      free.push({ id: nextRangeId, start: cursor, end: busy.start });
-      nextRangeId += 1;
-    }
-    if (cursor < busy.end) cursor = busy.end;
-  }
-  if (cursor < INVERT_DAY_END) {
-    free.push({ id: nextRangeId, start: cursor, end: INVERT_DAY_END });
-    nextRangeId += 1;
-  }
-  return free;
-}
-
 async function submit() {
   if (!schedule.value) return;
   error.value = "";
@@ -433,19 +424,11 @@ async function submit() {
     for (const date of Object.keys(availability).sort()) {
       const entry = availability[date];
       if (!entry || !isAllowedDate(date, schedule.value)) continue;
-      const validSelected: TimeRange[] = [];
       for (const range of entry.ranges) {
         if (rangeWarning(range)) {
           ignoredCount += 1;
           continue;
         }
-        validSelected.push(range);
-      }
-      if (validSelected.length === 0) continue;
-      const availableRanges = invertMode.value
-        ? invertDayRanges(validSelected)
-        : validSelected;
-      for (const range of availableRanges) {
         const start = zonedDateTimeToUtc(date, range.start, schedule.value.timeZone);
         const end = zonedDateTimeToUtc(date, range.end, schedule.value.timeZone);
         if (end <= start) {
@@ -467,9 +450,7 @@ async function submit() {
       title: "已保存",
       content: ignoredCount > 0
         ? `已保存 ${mergedRanges.length} 个合法时间段，忽略了 ${ignoredCount} 个非法时间段。`
-        : invertMode.value
-          ? `已按反选保存 ${mergedRanges.length} 个可用时间段。`
-          : `已保存 ${mergedRanges.length} 个时间段。`,
+        : `已保存 ${mergedRanges.length} 个时间段。`,
       showCancel: false,
     });
   } catch (reason) {
@@ -589,7 +570,7 @@ function pad(value: number): string {
 <template>
   <view class="page">
     <view class="page-heading">
-      <view class="title">{{ pageTitle }}</view>
+      <view class="title">选择可用时间</view>
       <view v-if="schedule" class="muted">
         {{ schedule.name }} · {{ schedule.startDate }} 至 {{ schedule.endDate }}
       </view>
@@ -599,18 +580,18 @@ function pad(value: number): string {
       <view class="batch-bar">
         <view class="mode-row">
           <button
-            class="batch-button mode-button"
-            :class="{ active: invertMode }"
-            @click="toggleInvertMode"
+            class="batch-button mode-button danger"
+            :class="{ active: batchDeleteMode }"
+            @click="toggleBatchDeleteMode"
           >
-            {{ invertMode ? "退出反选" : "反选" }}
+            {{ batchDeleteMode ? "退出批量删除" : "批量删除" }}
           </button>
           <button
             class="batch-button mode-button"
             :class="{ active: batchMode }"
             @click="toggleBatchMode"
           >
-            {{ batchMode ? "退出批量" : "批量添加" }}
+            {{ batchMode ? "退出批量添加" : "批量添加" }}
           </button>
         </view>
         <view v-if="batchMode" class="batch-time-row">
@@ -640,7 +621,7 @@ function pad(value: number): string {
       <view class="calendar-grid weekdays">
         <view v-for="weekday in weekdays" :key="weekday" class="weekday">{{ weekday }}</view>
       </view>
-      <view class="calendar-grid" :class="{ 'batch-active': batchMode }">
+      <view class="calendar-grid" :class="{ 'batch-active': anyBatchMode }">
         <view
           v-for="cell in calendarDays"
           :key="cell.key"
@@ -660,13 +641,12 @@ function pad(value: number): string {
       </view>
     </view>
 
-    <view v-if="schedule && selectedDate && !batchMode" class="editor-card">
+    <view v-if="schedule && selectedDate && !anyBatchMode" class="editor-card">
       <view class="editor-heading">
         <view class="editor-date">{{ selectedDate }}</view>
-        <view v-if="invertMode" class="invert-badge">反选 · 不可用时段</view>
       </view>
       <view v-if="!selectedEntry?.ranges.length" class="selection-note">
-        {{ invertMode ? "这一天还没有不可用时间段。默认可按 00:00–23:59 标记全天不可用。" : "这一天还没有时间段。" }}
+        这一天还没有时间段。
       </view>
       <view
         v-for="(range, index) in selectedEntry?.ranges ?? []"
@@ -765,6 +745,18 @@ function pad(value: number): string {
 .batch-button.active {
   border-color: #315efb;
   background: #315efb;
+  color: #fff;
+}
+
+.batch-button.danger {
+  border-color: #f3d0d6;
+  background: #fff5f6;
+  color: #c52b3c;
+}
+
+.batch-button.danger.active {
+  border-color: #c52b3c;
+  background: #c52b3c;
   color: #fff;
 }
 
@@ -890,16 +882,6 @@ function pad(value: number): string {
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
-}
-
-.invert-badge {
-  flex-shrink: 0;
-  padding: 6rpx 16rpx;
-  border-radius: 999rpx;
-  background: #fff4e8;
-  color: #b25c00;
-  font-size: 22rpx;
-  font-weight: 700;
 }
 
 .selection-note {

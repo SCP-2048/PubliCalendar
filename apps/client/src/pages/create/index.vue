@@ -17,6 +17,7 @@ interface CalendarCell {
   day: number | null;
   selected: boolean;
   inRange: boolean;
+  disabled: boolean;
 }
 
 interface EditableDateRange extends DateRange {
@@ -63,6 +64,7 @@ const eventNumber = ref(
   Number.isSafeInteger(storedEventNumber) && storedEventNumber > 0 ? storedEventNumber : 1,
 );
 const today = new Date();
+const todayKey = dateText(today);
 const defaultEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6);
 const detectedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const detectedZoneIndex = timeZones.findIndex((zone) => zone.value === detectedZone);
@@ -74,7 +76,7 @@ const form = reactive({
 });
 const dateRanges = ref<EditableDateRange[]>([]);
 const pickerRange = reactive({
-  startDate: dateText(today),
+  startDate: todayKey,
   endDate: dateText(defaultEnd),
 });
 const monthKey = ref(pickerRange.startDate.slice(0, 7));
@@ -83,7 +85,7 @@ const focusedRangeId = ref<number | null>(null);
 const notice = ref("");
 const loading = ref(false);
 const error = ref("");
-const calendarPickerStart = `${today.getFullYear() - 100}-01-01`;
+const calendarPickerStart = todayKey;
 const calendarPickerEnd = `${today.getFullYear() + 100}-12-31`;
 const sheetOpen = ref(false);
 const sheetTitle = ref("");
@@ -118,7 +120,13 @@ const calendarDays = computed<CalendarCell[]>(() => {
   const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
   const cells: CalendarCell[] = [];
   for (let index = 0; index < leadingDays; index += 1) {
-    cells.push({ key: `empty-${index}`, day: null, selected: false, inRange: false });
+    cells.push({
+      key: `empty-${index}`,
+      day: null,
+      selected: false,
+      inRange: false,
+      disabled: false,
+    });
   }
   for (let day = 1; day <= daysInMonth; day += 1) {
     const key = formatDateKey(year, monthIndex + 1, day);
@@ -129,16 +137,23 @@ const calendarDays = computed<CalendarCell[]>(() => {
       inRange: dateRanges.value.some(
         (range) => key >= range.startDate && key <= range.endDate,
       ),
+      disabled: key < todayKey,
     });
   }
   while (cells.length % 7 !== 0) {
-    cells.push({ key: `empty-end-${cells.length}`, day: null, selected: false, inRange: false });
+    cells.push({
+      key: `empty-end-${cells.length}`,
+      day: null,
+      selected: false,
+      inRange: false,
+      disabled: false,
+    });
   }
   return cells;
 });
 
 function selectDate(cell: CalendarCell) {
-  if (cell.day === null) return;
+  if (cell.day === null || cell.disabled) return;
   if (!pendingDate.value) {
     pendingDate.value = cell.key;
     return;
@@ -157,17 +172,29 @@ function addPickerRange() {
   const endDate = pickerRange.startDate <= pickerRange.endDate
     ? pickerRange.endDate
     : pickerRange.startDate;
-  addDateRange({ startDate, endDate });
-  monthKey.value = startDate.slice(0, 7);
+  if (!addDateRange({ startDate, endDate })) return;
+  monthKey.value = (startDate < todayKey ? todayKey : startDate).slice(0, 7);
 }
 
-function addDateRange(range: DateRange) {
+function addDateRange(range: DateRange): boolean {
+  const normalized = normalizeRange(range);
+  if (normalized.endDate < todayKey) {
+    error.value = "不能选择今天之前的日期";
+    void uni.showToast({ title: error.value, icon: "none" });
+    return false;
+  }
+  const clamped: DateRange = {
+    startDate: normalized.startDate < todayKey ? todayKey : normalized.startDate,
+    endDate: normalized.endDate,
+  };
+  error.value = "";
   const beforeCount = dateRanges.value.length;
-  replaceRanges([...dateRanges.value, { id: nextRangeId, ...normalizeRange(range) }]);
+  replaceRanges([...dateRanges.value, { id: nextRangeId, ...clamped }]);
   nextRangeId += 1;
   if (dateRanges.value.length < beforeCount + 1) {
     showNotice("已合并重叠或相邻的日期范围");
   }
+  return true;
 }
 
 function applyDateRangeEdit(index: number, field: "startDate" | "endDate", value: string) {
@@ -175,16 +202,25 @@ function applyDateRangeEdit(index: number, field: "startDate" | "endDate", value
   if (!current) return;
   const next = {
     ...current,
-    [field]: value,
+    [field]: value < todayKey ? todayKey : value,
   };
   const normalized = { ...next, ...normalizeRange(next) };
+  if (normalized.endDate < todayKey) {
+    error.value = "不能选择今天之前的日期";
+    void uni.showToast({ title: error.value, icon: "none" });
+    return;
+  }
+  const clamped = {
+    ...normalized,
+    startDate: normalized.startDate < todayKey ? todayKey : normalized.startDate,
+  };
   const beforeCount = dateRanges.value.length;
   const draft = dateRanges.value.map((range, rangeIndex) =>
-    rangeIndex === index ? normalized : range,
+    rangeIndex === index ? { ...current, ...clamped } : range,
   );
   replaceRanges(draft);
   focusedRangeId.value = null;
-  monthKey.value = normalized.startDate.slice(0, 7);
+  monthKey.value = clamped.startDate.slice(0, 7);
   if (dateRanges.value.length < beforeCount) {
     showNotice("已合并重叠或相邻的日期范围");
   }
@@ -250,7 +286,9 @@ function cancelPending() {
 function moveMonth(offset: number) {
   const [yearText, monthText] = monthKey.value.split("-");
   const target = new Date(Date.UTC(Number(yearText), Number(monthText) - 1 + offset, 1));
-  monthKey.value = `${target.getUTCFullYear()}-${pad(target.getUTCMonth() + 1)}`;
+  const nextMonth = `${target.getUTCFullYear()}-${pad(target.getUTCMonth() + 1)}`;
+  const earliestMonth = todayKey.slice(0, 7);
+  monthKey.value = nextMonth < earliestMonth ? earliestMonth : nextMonth;
 }
 
 function openTimezonePicker() {
@@ -487,7 +525,12 @@ function pad(value: number): string {
           v-for="cell in calendarDays"
           :key="cell.key"
           class="day-cell"
-          :class="{ selected: cell.selected, 'in-range': cell.inRange, empty: cell.day === null }"
+          :class="{
+            selected: cell.selected,
+            'in-range': cell.inRange,
+            disabled: cell.disabled,
+            empty: cell.day === null,
+          }"
           @click="selectDate(cell)"
         >
           <text v-if="cell.day !== null">{{ cell.day }}</text>
@@ -704,8 +747,12 @@ function pad(value: number): string {
   transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
 }
 
-.day-cell:not(.empty):hover {
+.day-cell:not(.empty):not(.disabled):hover {
   border-color: #315efb;
+}
+
+.day-cell.disabled {
+  color: #c8ced9;
 }
 
 .day-cell.in-range {
@@ -720,6 +767,14 @@ function pad(value: number): string {
   background: #315efb;
   color: #fff;
   font-weight: 700;
+}
+
+.day-cell.disabled.in-range,
+.day-cell.disabled.selected {
+  border-color: transparent;
+  background: #eef1f6;
+  color: #c8ced9;
+  font-weight: 400;
 }
 
 .range-list {
