@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { mergeDateRanges, type DateRange } from "@publicalendar/shared";
+import { type DateRange } from "@publicalendar/shared";
 import LoopPickerSheet from "../../components/LoopPickerSheet.vue";
 import { api } from "../../lib/api";
 import {
@@ -9,6 +9,7 @@ import {
   dateParts,
   type PickerColumn,
 } from "../../lib/loop-picker";
+import { mergeDateRanges } from "../../lib/ranges";
 import { saveCreatorToken } from "../../lib/tokens";
 import { rememberEvent } from "../../lib/recent-events";
 

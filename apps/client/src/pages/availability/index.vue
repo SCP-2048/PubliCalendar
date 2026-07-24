@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
 import { onLoad, onShareAppMessage, onUnload } from "@dcloudio/uni-app";
-import { unionRanges, type ScheduleView, type UtcRange } from "@publicalendar/shared";
+import { type ScheduleView, type UtcRange } from "@publicalendar/shared";
 import LoopPickerSheet from "../../components/LoopPickerSheet.vue";
 import { api } from "../../lib/api";
 import { eventSharePath, eventShareTitle } from "../../lib/share";
@@ -13,6 +13,7 @@ import {
   timeParts,
   type PickerColumn,
 } from "../../lib/loop-picker";
+import { unionRanges } from "../../lib/ranges";
 import {
   clearParticipantSession,
   getParticipantId,

@@ -1,4 +1,5 @@
-import { unionRanges, type UtcRange } from "@publicalendar/shared";
+import type { UtcRange } from "@publicalendar/shared";
+import { unionRanges } from "./ranges";
 
 export interface BarSegment {
   startPct: number;
