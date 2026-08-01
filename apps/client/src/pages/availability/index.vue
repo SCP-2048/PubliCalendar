@@ -13,7 +13,6 @@ import {
   timeParts,
   type PickerColumn,
 } from "../../lib/loop-picker";
-import { unionRanges } from "../../lib/ranges";
 import {
   clearParticipantSession,
   getParticipantId,
@@ -21,6 +20,9 @@ import {
   saveParticipantId,
 } from "../../lib/tokens";
 import { rememberEvent } from "../../lib/recent-events";
+import { navigateTo, showModal } from "../../lib/uni-bridge";
+import { collectMergedRanges } from "../../lib/collect-ranges";
+import { addDays, localParts, zonedDateTimeToUtc } from "../../lib/day-timeline";
 
 interface TimeRange {
   id: number;
@@ -420,26 +422,7 @@ async function submit() {
   if (!schedule.value) return;
   error.value = "";
   try {
-    const ranges: UtcRange[] = [];
-    let ignoredCount = 0;
-    for (const date of Object.keys(availability).sort()) {
-      const entry = availability[date];
-      if (!entry || !isAllowedDate(date, schedule.value)) continue;
-      for (const range of entry.ranges) {
-        if (rangeWarning(range)) {
-          ignoredCount += 1;
-          continue;
-        }
-        const start = zonedDateTimeToUtc(date, range.start, schedule.value.timeZone);
-        const end = zonedDateTimeToUtc(date, range.end, schedule.value.timeZone);
-        if (end <= start) {
-          ignoredCount += 1;
-          continue;
-        }
-        ranges.push({ start, end });
-      }
-    }
-    const mergedRanges = unionRanges(ranges);
+    const { mergedRanges, ignoredCount } = collectMergedRanges(availability, schedule.value);
     loading.value = true;
     await api.replaceAvailability(
       code.value,
@@ -447,7 +430,7 @@ async function submit() {
       getParticipantToken(code.value),
     );
     hasSubmitted.value = true;
-    await uni.showModal({
+    await showModal({
       title: "已保存",
       content: ignoredCount > 0
         ? `已保存 ${mergedRanges.length} 个合法时间段，忽略了 ${ignoredCount} 个非法时间段。`
@@ -466,7 +449,7 @@ function viewResult() {
     error.value = "请先提交可用时间";
     return;
   }
-  void uni.navigateTo({ url: `/pages/result/index?code=${code.value}` });
+  void navigateTo({ url: `/pages/result/index?code=${code.value}` });
 }
 
 onShareAppMessage(() => ({
@@ -503,54 +486,6 @@ function importRanges(ranges: UtcRange[], currentSchedule: ScheduleView) {
       date = addDays(date, 1);
     }
   }
-}
-
-function zonedDateTimeToUtc(date: string, time: string, timeZone: string): number {
-  const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  const target = Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0);
-  let guess = target;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const parts = localParts(guess, timeZone);
-    const displayedAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
-    const adjustment = target - displayedAsUtc;
-    guess += adjustment;
-    if (adjustment === 0) break;
-  }
-  return guess;
-}
-
-function localParts(timestamp: number, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(timestamp));
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const year = Number(values.year);
-  const month = Number(values.month);
-  const day = Number(values.day);
-  const hour = Number(values.hour);
-  const minute = Number(values.minute);
-  return {
-    year,
-    month,
-    day,
-    hour,
-    minute,
-    date: formatDateKey(year, month, day),
-    time: `${pad(hour)}:${pad(minute)}`,
-  };
-}
-
-function addDays(date: string, amount: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  const value = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, (day ?? 1) + amount));
-  return formatDateKey(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
 }
 
 function isAllowedDate(date: string, currentSchedule: ScheduleView): boolean {
@@ -620,7 +555,9 @@ function pad(value: number): string {
       </view>
 
       <view class="calendar-grid weekdays">
-        <view v-for="weekday in weekdays" :key="weekday" class="weekday">{{ weekday }}</view>
+        <view v-for="weekday in weekdays" :key="weekday" class="weekday">
+          <text>{{ weekday }}</text>
+        </view>
       </view>
       <view class="calendar-grid" :class="{ 'batch-active': anyBatchMode }">
         <view
@@ -636,7 +573,7 @@ function pad(value: number): string {
           }"
           @click="onDayClick(cell)"
         >
-          <text v-if="cell.day !== null">{{ cell.day }}</text>
+          <text v-if="cell.day !== null" class="day-text">{{ cell.day }}</text>
           <view v-if="cell.configured" class="availability-dot" />
         </view>
       </view>
@@ -809,9 +746,10 @@ function pad(value: number): string {
   border: 0;
 }
 
+/* WeChat X5/WEBVIEW collapses CSS grid / flex+% cells; use inline-block for H5 + MP. */
 .calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  width: 100%;
+  font-size: 0;
 }
 
 .weekdays {
@@ -819,9 +757,14 @@ function pad(value: number): string {
 }
 
 .weekday {
+  box-sizing: border-box;
+  display: inline-block;
+  width: 14.285714%;
+  vertical-align: top;
   color: #8893a7;
   font-size: 24rpx;
   text-align: center;
+  line-height: 40rpx;
 }
 
 .calendar-grid.batch-active {
@@ -831,15 +774,27 @@ function pad(value: number): string {
 .day-cell {
   box-sizing: border-box;
   position: relative;
-  display: flex;
+  display: inline-block;
+  width: 14.285714%;
   height: 76rpx;
-  align-items: center;
-  justify-content: center;
+  vertical-align: top;
   border: 2rpx solid transparent;
   border-radius: 10rpx;
   color: #26334d;
   font-size: 28rpx;
-  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+  line-height: 72rpx;
+  text-align: center;
+}
+
+.day-text {
+  color: inherit;
+  font-size: 28rpx;
+  line-height: 72rpx;
+}
+
+.day-cell.empty {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .day-cell:not(.empty):not(.disabled):hover {

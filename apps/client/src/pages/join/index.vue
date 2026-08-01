@@ -11,6 +11,7 @@ import {
   type RecentEvent,
 } from "../../lib/recent-events";
 import { eventSharePath, eventShareTitle } from "../../lib/share";
+import { navigateTo, redirectTo } from "../../lib/uni-bridge";
 
 const code = ref("");
 const nickname = ref("");
@@ -34,7 +35,7 @@ onLoad((options) => {
     code.value = options.code.toUpperCase();
     const existingToken = getParticipantToken(code.value);
     if (existingToken && joinOnly.value) {
-      void uni.redirectTo({ url: `/pages/availability/index?code=${code.value}` });
+      void redirectTo({ url: `/pages/availability/index?code=${code.value}` });
       return;
     }
     void lookup({ openResult: !joinOnly.value });
@@ -68,7 +69,7 @@ async function lookup(options?: { openResult?: boolean }) {
     rememberEvent(foundSchedule, "visitor");
     recentEvents.value = getRecentEvents("join");
     if (openResult) {
-      await uni.redirectTo({ url: `/pages/result/index?code=${normalized}` });
+      await redirectTo({ url: `/pages/result/index?code=${normalized}` });
     }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "查询失败";
@@ -85,7 +86,7 @@ async function join() {
     const result = await api.join(code.value, submittedNickname);
     saveParticipantToken(code.value, result.participantToken);
     saveParticipantId(code.value, result.participant.id);
-    await uni.redirectTo({ url: `/pages/availability/index?code=${code.value}` });
+    await redirectTo({ url: `/pages/availability/index?code=${code.value}` });
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "加入失败";
   } finally {
@@ -95,7 +96,7 @@ async function join() {
 
 function viewResult() {
   if (!schedule.value) return;
-  void uni.navigateTo({ url: `/pages/result/index?code=${code.value}` });
+  void navigateTo({ url: `/pages/result/index?code=${code.value}` });
 }
 
 function formatDate(value: string): string {

@@ -12,6 +12,7 @@ import {
 import { mergeDateRanges } from "../../lib/ranges";
 import { saveCreatorToken } from "../../lib/tokens";
 import { rememberEvent } from "../../lib/recent-events";
+import { hideLoading, navigateTo, showLoading, showModal, showToast } from "../../lib/uni-bridge";
 
 interface CalendarCell {
   key: string;
@@ -67,10 +68,23 @@ const eventNumber = ref(
 const today = new Date();
 const todayKey = dateText(today);
 const defaultEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6);
-const detectedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+let detectedZone = "";
+try {
+  if (typeof Intl !== "undefined" && typeof Intl.DateTimeFormat === "function") {
+    detectedZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  }
+} catch {
+  detectedZone = "";
+}
 const detectedZoneIndex = timeZones.findIndex((zone) => zone.value === detectedZone);
 const fallbackZoneIndex = timeZones.findIndex((zone) => zone.value === "Asia/Shanghai");
-const timeZoneIndex = ref(detectedZoneIndex >= 0 ? detectedZoneIndex : fallbackZoneIndex);
+const timeZoneIndex = ref(
+  detectedZoneIndex >= 0
+    ? detectedZoneIndex
+    : fallbackZoneIndex >= 0
+      ? fallbackZoneIndex
+      : 0,
+);
 const form = reactive({
   name: "",
   timeZone: timeZones[timeZoneIndex.value]?.value ?? "Asia/Shanghai",
@@ -97,7 +111,10 @@ let nextRangeId = 1;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
 const selectedTimeZoneLabel = computed(
-  () => timeZones[timeZoneIndex.value]?.label ?? timeZones[fallbackZoneIndex]?.label,
+  () =>
+    timeZones[timeZoneIndex.value]?.label
+    ?? timeZones[fallbackZoneIndex]?.label
+    ?? "UTC+08 · Shanghai",
 );
 const defaultEventName = computed(() => `Event ${eventNumber.value}`);
 
@@ -181,7 +198,7 @@ function addDateRange(range: DateRange): boolean {
   const normalized = normalizeRange(range);
   if (normalized.endDate < todayKey) {
     error.value = "不能选择今天之前的日期";
-    void uni.showToast({ title: error.value, icon: "none" });
+    void showToast({ title: error.value, icon: "none" });
     return false;
   }
   const clamped: DateRange = {
@@ -208,7 +225,7 @@ function applyDateRangeEdit(index: number, field: "startDate" | "endDate", value
   const normalized = { ...next, ...normalizeRange(next) };
   if (normalized.endDate < todayKey) {
     error.value = "不能选择今天之前的日期";
-    void uni.showToast({ title: error.value, icon: "none" });
+    void showToast({ title: error.value, icon: "none" });
     return;
   }
   const clamped = {
@@ -399,7 +416,7 @@ async function submit() {
   error.value = "";
   if (dateRanges.value.length === 0) {
     error.value = "请先添加至少一个日期范围";
-    void uni.showToast({ title: error.value, icon: "none" });
+    void showToast({ title: error.value, icon: "none" });
     return;
   }
 
@@ -412,7 +429,7 @@ async function submit() {
   };
 
   loading.value = true;
-  void uni.showLoading({ title: "创建中…", mask: true });
+  void showLoading({ title: "创建中…", mask: true });
   try {
     const result = await api.create(payload);
     saveCreatorToken(result.schedule.code, result.creatorToken);
@@ -420,12 +437,12 @@ async function submit() {
     eventNumber.value += 1;
     uni.setStorageSync(eventCounterKey, eventNumber.value);
     form.name = "";
-    uni.hideLoading();
-    await uni.navigateTo({ url: `/pages/result/index?code=${result.schedule.code}` });
+    hideLoading();
+    await navigateTo({ url: `/pages/result/index?code=${result.schedule.code}` });
   } catch (reason) {
-    uni.hideLoading();
+    hideLoading();
     error.value = reason instanceof Error ? reason.message : "创建失败";
-    void uni.showModal({
+    void showModal({
       title: "创建失败",
       content: error.value,
       showCancel: false,
@@ -433,7 +450,7 @@ async function submit() {
   } finally {
     loading.value = false;
     try {
-      uni.hideLoading();
+      hideLoading();
     } catch {
       // ignore
     }
@@ -510,16 +527,20 @@ function pad(value: number): string {
         <text class="section-title">在日历上选择</text>
       </view>
       <view class="section-desc">{{ calendarHint }}</view>
-      <view class="section-note">整体最长可跨 100 年；重叠或相邻范围会自动合并</view>
 
       <view class="month-navigation">
         <button class="icon-button" @click="moveMonth(-1)">‹</button>
-        <view class="month-title" @click="openMonthPicker">{{ monthLabel }}⌄</view>
+        <view class="month-title" @click="openMonthPicker">
+          <text>{{ monthLabel }}</text>
+          <text>⌄</text>
+        </view>
         <button class="icon-button" @click="moveMonth(1)">›</button>
       </view>
 
       <view class="calendar-grid weekdays">
-        <view v-for="weekday in weekdays" :key="weekday" class="weekday">{{ weekday }}</view>
+        <view v-for="weekday in weekdays" :key="weekday" class="weekday">
+          <text>{{ weekday }}</text>
+        </view>
       </view>
       <view class="calendar-grid">
         <view
@@ -534,7 +555,7 @@ function pad(value: number): string {
           }"
           @click="selectDate(cell)"
         >
-          <text v-if="cell.day !== null">{{ cell.day }}</text>
+          <text v-if="cell.day !== null" class="day-text">{{ cell.day }}</text>
         </view>
       </view>
     </view>
@@ -547,11 +568,11 @@ function pad(value: number): string {
 
       <view class="picker-range-row">
         <view class="date-picker-field" @click="openPickerRange('startDate')">
-          {{ pickerRange.startDate }}
+          <text>{{ pickerRange.startDate }}</text>
         </view>
         <text class="summary-divider">至</text>
         <view class="date-picker-field" @click="openPickerRange('endDate')">
-          {{ pickerRange.endDate }}
+          <text>{{ pickerRange.endDate }}</text>
         </view>
         <button class="range-add-button" @click="addPickerRange">添加</button>
       </view>
@@ -640,13 +661,6 @@ function pad(value: number): string {
   line-height: 1.5;
 }
 
-.section-note {
-  margin-top: 6rpx;
-  margin-bottom: 8rpx;
-  color: #8a95a8;
-  font-size: 22rpx;
-}
-
 .picker-range-row {
   display: flex;
   align-items: center;
@@ -655,13 +669,20 @@ function pad(value: number): string {
 }
 
 .date-picker-field {
-  padding: 16rpx;
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  padding: 16rpx 12rpx;
   border: 2rpx solid #dce3ef;
   border-radius: 12rpx;
   background: #fff;
   color: #26334d;
   font-size: 24rpx;
   font-weight: 700;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .date-picker-field.compact {
@@ -720,9 +741,10 @@ function pad(value: number): string {
   border: 0;
 }
 
+/* WeChat X5/WEBVIEW collapses CSS grid / flex+% cells; use inline-block for H5 + MP. */
 .calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  width: 100%;
+  font-size: 0;
 }
 
 .weekdays {
@@ -730,22 +752,39 @@ function pad(value: number): string {
 }
 
 .weekday {
+  box-sizing: border-box;
+  display: inline-block;
+  width: 14.285714%;
+  vertical-align: top;
   color: #8893a7;
   font-size: 24rpx;
   text-align: center;
+  line-height: 40rpx;
 }
 
 .day-cell {
   box-sizing: border-box;
-  display: flex;
+  display: inline-block;
+  width: 14.285714%;
   height: 76rpx;
-  align-items: center;
-  justify-content: center;
+  vertical-align: top;
   border: 2rpx solid transparent;
   border-radius: 10rpx;
   color: #26334d;
   font-size: 28rpx;
-  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+  line-height: 72rpx;
+  text-align: center;
+}
+
+.day-text {
+  color: inherit;
+  font-size: 28rpx;
+  line-height: 72rpx;
+}
+
+.day-cell.empty {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .day-cell:not(.empty):not(.disabled):hover {

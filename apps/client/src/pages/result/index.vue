@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { onLoad, onPullDownRefresh, onShareAppMessage, onShow } from "@dcloudio/uni-app";
 import type { IntersectionResult, ScheduleView } from "@publicalendar/shared";
 import { api } from "../../lib/api";
 import { eventSharePath, eventShareTitle } from "../../lib/share";
 import {
-  dayAvailabilityRatio,
+  dayPublicTimeSummaries,
   publicBarSegments,
   userBarSegments,
   type BarSegment,
@@ -24,14 +24,18 @@ import {
   getParticipantToken,
 } from "../../lib/tokens";
 import { rememberEvent } from "../../lib/recent-events";
+import { navigateTo, showModal } from "../../lib/uni-bridge";
 
 interface CalendarCell {
   key: string;
   day: number | null;
   inRange: boolean;
   selected: boolean;
-  ratio: number;
+  timeLines: string[];
 }
+
+/** Below this width, calendar cells use compact labels like "8-18". */
+const COMPACT_CALENDAR_MAX_WIDTH = 640;
 
 const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
 const code = ref("");
@@ -49,6 +53,16 @@ const isCreator = ref(false);
 const myParticipantId = ref("");
 const hasParticipantToken = ref(false);
 const settingsSaving = ref(false);
+const compactCalendarTimes = ref(true);
+
+function refreshCompactCalendarMode() {
+  try {
+    const width = uni.getSystemInfoSync().windowWidth ?? 375;
+    compactCalendarTimes.value = width < COMPACT_CALENDAR_MAX_WIDTH;
+  } catch {
+    compactCalendarTimes.value = true;
+  }
+}
 
 const monthLabel = computed(() => {
   if (!monthKey.value) return "";
@@ -68,8 +82,9 @@ const calendarDays = computed<CalendarCell[]>(() => {
   const leadingDays = (new Date(Date.UTC(year, monthIndex, 1)).getUTCDay() + 6) % 7;
   const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
   const cells: CalendarCell[] = [];
+  const summaryOptions = { compact: compactCalendarTimes.value };
   for (let index = 0; index < leadingDays; index += 1) {
-    cells.push({ key: `empty-${index}`, day: null, inRange: false, selected: false, ratio: 0 });
+    cells.push({ key: `empty-${index}`, day: null, inRange: false, selected: false, timeLines: [] });
   }
   for (let day = 1; day <= daysInMonth; day += 1) {
     const key = formatDateKey(year, monthIndex + 1, day);
@@ -79,9 +94,15 @@ const calendarDays = computed<CalendarCell[]>(() => {
       day,
       inRange,
       selected: key === selectedDate.value,
-      ratio: inRange && result.value?.complete
-        ? dayAvailabilityRatio(publicRanges.value, key, schedule.value.timeZone)
-        : 0,
+      timeLines:
+        inRange && result.value?.complete
+          ? dayPublicTimeSummaries(
+              publicRanges.value,
+              key,
+              schedule.value.timeZone,
+              summaryOptions,
+            )
+          : [],
     });
   }
   while (cells.length % 7 !== 0) {
@@ -90,7 +111,7 @@ const calendarDays = computed<CalendarCell[]>(() => {
       day: null,
       inRange: false,
       selected: false,
-      ratio: 0,
+      timeLines: [],
     });
   }
   return cells;
@@ -117,12 +138,27 @@ const publicSegments = computed<BarSegment[]>(() => {
 
 onLoad((options) => {
   code.value = typeof options?.code === "string" ? options.code.toUpperCase() : "";
+  refreshCompactCalendarMode();
   // #ifdef MP-WEIXIN
   uni.showShareMenu({ menus: ["shareAppMessage"] });
   // #endif
 });
 
+onMounted(() => {
+  refreshCompactCalendarMode();
+  // #ifdef H5
+  window.addEventListener("resize", refreshCompactCalendarMode);
+  // #endif
+});
+
+onUnmounted(() => {
+  // #ifdef H5
+  window.removeEventListener("resize", refreshCompactCalendarMode);
+  // #endif
+});
+
 onShow(() => {
+  refreshCompactCalendarMode();
   if (code.value) void refresh();
 });
 
@@ -205,7 +241,7 @@ async function removeParticipant(participantId: string, nickname: string) {
     error.value = "缺少删除凭证";
     return;
   }
-  const confirmed = await uni.showModal({
+  const confirmed = await showModal({
     title: "删除参与者",
     content: `确定删除「${nickname}」的数据吗？`,
   });
@@ -232,7 +268,7 @@ function firstDateWithAvailability(): string | null {
   for (const range of schedule.value.dateRanges) {
     let date = range.startDate;
     while (date <= range.endDate) {
-      if (dayAvailabilityRatio(publicRanges.value, date, schedule.value.timeZone) > 0) {
+      if (dayPublicTimeSummaries(publicRanges.value, date, schedule.value.timeZone).length > 0) {
         return date;
       }
       date = addDays(date, 1);
@@ -312,17 +348,16 @@ function closeSheet() {
   sheetOpen.value = false;
 }
 
-function ringStyle(ratio: number) {
-  const progress = Math.max(0, Math.min(1, ratio));
-  return {
-    background: `conic-gradient(#34c759 ${progress}turn, #e6edf5 0)`,
-  };
-}
-
 function segmentStyle(segment: BarSegment) {
   return {
     left: `${segment.startPct}%`,
     width: `${Math.max(segment.widthPct, 0.8)}%`,
+  };
+}
+
+function endpointStyle(pct: number) {
+  return {
+    left: `${Math.max(0, Math.min(100, pct))}%`,
   };
 }
 
@@ -353,7 +388,7 @@ async function copyInvite() {
 }
 
 function joinOnThisDevice() {
-  void uni.navigateTo({ url: `/pages/join/index?code=${code.value}&mode=join` });
+  void navigateTo({ url: `/pages/join/index?code=${code.value}&mode=join` });
 }
 
 function isMyParticipant(participantId: string): boolean {
@@ -361,7 +396,7 @@ function isMyParticipant(participantId: string): boolean {
 }
 
 function editMyAvailability() {
-  void uni.navigateTo({ url: `/pages/availability/index?code=${code.value}` });
+  void navigateTo({ url: `/pages/availability/index?code=${code.value}` });
 }
 
 onShareAppMessage(() => ({
@@ -371,7 +406,7 @@ onShareAppMessage(() => ({
 </script>
 
 <template>
-  <view class="page">
+  <view class="page result-page">
     <view class="title">共同可用时间</view>
 
     <view v-if="schedule" class="card">
@@ -438,7 +473,7 @@ onShareAppMessage(() => ({
 
     <view v-if="schedule && result?.complete" class="calendar-card">
       <view class="section-title">共同可用日历</view>
-      <view class="section-desc">绿色圆环表示当天共同可用占比；满环代表全天都有交集</view>
+      <view class="section-desc">日期下方显示共同时段：宽屏为完整时间，窄屏为紧凑格式（如 8-18）；超过两段时只显示第一段并以省略号表示其余。点选日期可在下方查看完整起止时间</view>
 
       <view class="month-navigation">
         <button class="icon-button" @click="moveMonth(-1)">‹</button>
@@ -447,7 +482,9 @@ onShareAppMessage(() => ({
       </view>
 
       <view class="calendar-grid weekdays">
-        <view v-for="weekday in weekdays" :key="weekday" class="weekday">{{ weekday }}</view>
+        <view v-for="weekday in weekdays" :key="weekday" class="weekday">
+          <text>{{ weekday }}</text>
+        </view>
       </view>
       <view class="calendar-grid">
         <view
@@ -458,24 +495,28 @@ onShareAppMessage(() => ({
             disabled: cell.day !== null && !cell.inRange,
             selected: cell.selected,
             empty: cell.day === null,
+            'has-times': cell.timeLines.length > 0,
           }"
           @click="selectDay(cell)"
         >
-          <view
-            v-if="cell.day !== null && cell.inRange"
-            class="day-ring"
-            :style="ringStyle(cell.ratio)"
-          >
-            <view class="day-ring-inner">{{ cell.day }}</view>
+          <text v-if="cell.day !== null" class="day-number">{{ cell.day }}</text>
+          <view v-if="cell.timeLines.length > 0" class="day-times">
+            <view
+              v-for="(line, index) in cell.timeLines"
+              :key="`${cell.key}-time-${index}`"
+              class="day-time-pill"
+              :class="{ ellipsis: line === '…' }"
+            >
+              <text class="day-time-text">{{ line }}</text>
+            </view>
           </view>
-          <text v-else-if="cell.day !== null">{{ cell.day }}</text>
         </view>
       </view>
     </view>
 
     <view v-if="schedule && result?.complete && selectedDate" class="timeline-card">
       <view class="section-title">{{ selectedDate }}</view>
-      <view class="section-desc">灰段为个人独有空闲，绿段为共同可用</view>
+      <view class="section-desc">灰段为个人独有空闲，绿段为共同可用；起止时间标在绿段两端正下方</view>
       <view class="hour-scale">
         <text>0</text>
         <text>6</text>
@@ -500,13 +541,28 @@ onShareAppMessage(() => ({
 
       <view class="bar-row public-row">
         <view class="bar-label">共同</view>
-        <view class="bar-track">
-          <view
-            v-for="(segment, index) in publicSegments"
-            :key="`public-${index}`"
-            class="bar-segment green"
-            :style="segmentStyle(segment)"
-          />
+        <view class="public-bar-stack">
+          <view class="bar-track">
+            <view
+              v-for="(segment, index) in publicSegments"
+              :key="`public-${index}`"
+              class="bar-segment green"
+              :style="segmentStyle(segment)"
+            />
+          </view>
+          <view v-if="publicSegments.length > 0" class="public-endpoint-track">
+            <template v-for="(segment, index) in publicSegments" :key="`public-ends-${index}`">
+              <text
+                class="endpoint-label"
+                :style="endpointStyle(segment.startPct)"
+              >{{ segment.startLabel }}</text>
+              <text
+                class="endpoint-label"
+                :style="endpointStyle(segment.startPct + segment.widthPct)"
+              >{{ segment.endLabel }}</text>
+            </template>
+          </view>
+          <view v-else-if="dayRows.length > 0" class="public-times-empty">当天没有共同可用时段</view>
         </view>
       </view>
     </view>
@@ -526,6 +582,10 @@ onShareAppMessage(() => ({
 </template>
 
 <style scoped lang="scss">
+.result-page {
+  padding: 20rpx 12rpx 40rpx;
+}
+
 .invite-code {
   margin-bottom: 8rpx;
   font-size: 56rpx;
@@ -604,11 +664,23 @@ onShareAppMessage(() => ({
 
 .calendar-card,
 .timeline-card {
-  margin-bottom: 24rpx;
-  padding: 28rpx;
+  margin-bottom: 20rpx;
+  padding: 20rpx 12rpx;
   border-radius: 24rpx;
   background: #fff;
   box-shadow: 0 10rpx 30rpx rgba(35, 54, 91, 0.08);
+}
+
+.calendar-card .section-title,
+.timeline-card .section-title {
+  padding: 0 8rpx;
+}
+
+.calendar-card .section-desc,
+.timeline-card .section-desc {
+  padding: 0 8rpx;
+  margin-bottom: 12rpx;
+  font-size: 22rpx;
 }
 
 .section-title {
@@ -629,23 +701,24 @@ onShareAppMessage(() => ({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 0 4rpx;
 }
 
 .month-title {
-  padding: 16rpx 28rpx;
+  padding: 12rpx 16rpx;
   font-size: 32rpx;
   font-weight: 700;
 }
 
 .icon-button {
-  width: 72rpx;
+  width: 64rpx;
   height: 64rpx;
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: #315efb;
-  font-size: 52rpx;
+  font-size: 48rpx;
   line-height: 58rpx;
 }
 
@@ -653,31 +726,47 @@ onShareAppMessage(() => ({
   border: 0;
 }
 
+/* WeChat X5/WEBVIEW collapses CSS grid / flex+% cells; use inline-block for H5 + MP. */
 .calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  width: 100%;
+  font-size: 0;
 }
 
 .weekdays {
-  margin: 12rpx 0 8rpx;
+  margin: 8rpx 0 4rpx;
 }
 
 .weekday {
+  box-sizing: border-box;
+  display: inline-block;
+  width: 14.285714%;
+  vertical-align: top;
   color: #8893a7;
   font-size: 24rpx;
   text-align: center;
+  line-height: 40rpx;
 }
 
 .day-cell {
   box-sizing: border-box;
-  display: flex;
-  height: 88rpx;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
+  width: 14.285714%;
+  min-width: 0;
+  min-height: 132rpx;
+  vertical-align: top;
+  overflow: hidden;
+  padding: 8rpx 2rpx 6rpx;
   border: 2rpx solid transparent;
-  border-radius: 14rpx;
+  border-radius: 12rpx;
   color: #26334d;
-  font-size: 26rpx;
+  font-size: 28rpx;
+  text-align: center;
+}
+
+.day-cell.empty {
+  min-height: 132rpx;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .day-cell.disabled {
@@ -689,26 +778,61 @@ onShareAppMessage(() => ({
   background: #f3f6ff;
 }
 
-.day-ring {
-  display: flex;
-  width: 64rpx;
-  height: 64rpx;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
+.day-cell.has-times {
+  background: #f4fbf6;
 }
 
-.day-ring-inner {
-  display: flex;
-  width: 46rpx;
-  height: 46rpx;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #fff;
-  color: #1f2a44;
-  font-size: 24rpx;
+.day-cell.selected.has-times {
+  background: #eef6ff;
+}
+
+.day-number {
+  font-size: 30rpx;
   font-weight: 700;
+  line-height: 1.15;
+}
+
+.day-times {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4rpx;
+  margin-top: 6rpx;
+  padding: 0 2rpx;
+}
+
+.day-time-pill {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  padding: 4rpx 2rpx;
+  border-radius: 999rpx;
+  background: #34c759;
+}
+
+.day-time-pill.ellipsis {
+  padding: 2rpx 2rpx;
+}
+
+.day-time-text {
+  display: block;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-cell.disabled .day-time-pill {
+  background: #c5ced9;
+}
+
+.day-cell.disabled .day-time-text {
+  color: #ffffff;
 }
 
 .hour-scale {
@@ -722,7 +846,7 @@ onShareAppMessage(() => ({
 
 .bar-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16rpx;
   margin-top: 16rpx;
 }
@@ -730,9 +854,11 @@ onShareAppMessage(() => ({
 .bar-label {
   width: 120rpx;
   overflow: hidden;
+  padding-top: 2rpx;
   color: #314057;
   font-size: 24rpx;
   font-weight: 600;
+  line-height: 28rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -763,5 +889,33 @@ onShareAppMessage(() => ({
 
 .public-row .bar-label {
   color: #1f7a3a;
+}
+
+.public-bar-stack {
+  flex: 1;
+  min-width: 0;
+}
+
+.public-endpoint-track {
+  position: relative;
+  height: 32rpx;
+  margin-top: 6rpx;
+}
+
+.endpoint-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  color: #1f7a3a;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.public-times-empty {
+  margin-top: 8rpx;
+  color: #9aa4b6;
+  font-size: 22rpx;
 }
 </style>

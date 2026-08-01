@@ -2,8 +2,8 @@
   "name": "PubliCalendar",
   "appid": "__UNI__PUBLICALENDAR",
   "description": "无需注册的多人可用时间交集工具",
-  "versionName": "0.1.4",
-  "versionCode": "104",
+  "versionName": "1.0.9",
+  "versionCode": "1009",
   "transformPx": false,
   "h5": {
     "router": { "mode": "hash" }

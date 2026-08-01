@@ -6,6 +6,7 @@ import {
   removeRecentEvent,
   type RecentEvent,
 } from "../../lib/recent-events";
+import { navigateTo } from "../../lib/uni-bridge";
 
 const recentEvents = ref<RecentEvent[]>([]);
 
@@ -32,7 +33,7 @@ function dateRangeText(event: RecentEvent): string {
 }
 
 function openEvent(event: RecentEvent) {
-  void uni.navigateTo({ url: `/pages/result/index?code=${event.code}` });
+  void navigateTo({ url: `/pages/result/index?code=${event.code}` });
 }
 
 function removeEvent(event: RecentEvent) {
@@ -41,11 +42,11 @@ function removeEvent(event: RecentEvent) {
 }
 
 function createEvent() {
-  void uni.navigateTo({ url: "/pages/create/index" });
+  void navigateTo({ url: "/pages/create/index" });
 }
 
 function joinEvent() {
-  void uni.navigateTo({ url: "/pages/join/index" });
+  void navigateTo({ url: "/pages/join/index" });
 }
 </script>
 

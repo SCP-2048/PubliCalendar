@@ -18,7 +18,12 @@ page {
 .page {
   box-sizing: border-box;
   max-width: 760px;
+  /* #ifndef MP-WEIXIN */
   min-height: 100vh;
+  /* #endif */
+  /* #ifdef MP-WEIXIN */
+  min-height: 100%;
+  /* #endif */
   margin: 0 auto;
   padding: 32rpx;
 }
